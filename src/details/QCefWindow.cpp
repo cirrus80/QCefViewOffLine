@@ -1,0 +1,196 @@
+﻿#include "QCefWindow.h"
+
+#if defined(Q_OS_WINDOWS)
+#include <windows.h>
+#endif
+
+#include <QDebug>
+
+QCefWindow::QCefWindow()
+  : QWindow()
+{
+}
+
+QCefWindow::~QCefWindow()
+{
+  qDebug() << this << "is being destructed";
+}
+
+QWidget*
+QCefWindow::attachCefWindow(QWindow* win, QWidget* parent)
+{
+  // keep cef window
+  cefWindow_ = win;
+
+#if defined(Q_OS_MACOS)
+  // for macOS we just create the widget with CEF window,
+  // and current QCefWindow is useless
+  QWindow* widgetSourceWindow = cefWindow_;
+  // assign parent so it will be destroyed by the parent
+  this->setParent(cefWindow_);
+#else
+  // for Windows & Linux we create the widget with
+  // current QCefWindow
+  win->setParent(this);
+  QWindow* widgetSourceWindow = this;
+#endif
+
+  cefWidget_ = QWidget::createWindowContainer(widgetSourceWindow, //
+                                              parent,             //
+                                              Qt::WindowTransparentForInput | Qt::WindowDoesNotAcceptFocus);
+  return cefWidget_;
+}
+
+void
+QCefWindow::detachCefWindow()
+{
+  if (cefWindow_) {
+#if defined(Q_OS_WINDOWS)
+    // hide window
+    ::ShowWindow((HWND)(cefWindow_->winId()), SW_HIDE);
+    cefWindow_->setParent(nullptr);
+#elif defined(Q_OS_LINUX)
+    // hide window
+    cefWindow_->hide();
+    cefWindow_->setParent(nullptr);
+#else
+    // no action needed
+#endif
+
+    cefWindow_ = nullptr;
+    cefWidget_ = nullptr;
+  }
+}
+
+void
+QCefWindow::applyMask(const QRegion& region)
+{
+#if defined(Q_OS_MACOS)
+  if (cefWindow_) {
+    cefWindow_->setMask(region);
+  }
+#else
+  this->setMask(region);
+#endif
+}
+
+QWindow*
+QCefWindow::cefWindow()
+{
+  return cefWindow_;
+}
+
+void
+QCefWindow::syncCefWindowPosOnExpose()
+{
+#if defined(Q_OS_WINDOWS)
+  if (cefWidget_ && cefWindow_ && cefWindow_->winId()) {
+    qreal windowScaleFactor = this->devicePixelRatio();
+    int windowWidth = this->width();
+    int windowHeight = this->height();
+    // qDebug() << "----- container window:"
+    //          << "(" << windowWidth << " x " << windowHeight << ") @ " << windowScaleFactor;
+
+    qreal width = windowWidth * windowScaleFactor;
+    qreal height = windowHeight * windowScaleFactor;
+    // qDebug() << "----- width:" << windowWidth << " x " << windowScaleFactor << " = " << width;
+    // qDebug() << "----- height:" << windowHeight << " x " << windowScaleFactor << " = " << height;
+
+    HWND hWnd = (HWND)(cefWindow_->winId());
+
+    ::SetWindowPos(hWnd,
+                   NULL,
+                   0,
+                   0,
+                   width,
+                   height,
+                   SWP_ASYNCWINDOWPOS | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOZORDER | SWP_DEFERERASE);
+  }
+#endif
+}
+
+void
+QCefWindow::syncCefWindowPosOnResize()
+{
+#if defined(Q_OS_WINDOWS)
+  if (cefWidget_ && cefWindow_ && cefWindow_->winId()) {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 6, 0))
+    qreal widgetScaleFactor = cefWidget_->devicePixelRatioF();
+#else
+    qreal widgetScaleFactor = cefWidget_->devicePixelRatio();
+#endif
+    int widgetWidth = cefWidget_->width();
+    int widgetHeigth = cefWidget_->height();
+    // qDebug() << "----- container widget:"
+    //          << "(" << widgetWidth << " x " << widgetHeigth << ") @ " << widgetScaleFactor;
+
+    qreal width = widgetWidth * widgetScaleFactor;
+    qreal height = widgetHeigth * widgetScaleFactor;
+    // qDebug() << "----- width:" << widgetWidth << " x " << widgetScaleFactor << " = " << width;
+    // qDebug() << "----- height:" << widgetHeigth << " x " << widgetScaleFactor << " = " << height;
+
+    HWND hWnd = (HWND)(cefWindow_->winId());
+
+    ::SetWindowPos(hWnd,
+                   NULL,
+                   0,
+                   0,
+                   width,
+                   height,
+                   SWP_ASYNCWINDOWPOS | SWP_NOOWNERZORDER | SWP_NOACTIVATE | SWP_NOZORDER | SWP_DEFERERASE);
+  }
+#endif
+}
+
+void
+QCefWindow::exposeEvent(QExposeEvent* e)
+{
+  qDebug() << "----- QCefWindow::exposeEvent:" << e;
+#if defined(Q_OS_WINDOWS)
+  syncCefWindowPosOnExpose();
+#endif
+  QWindow::exposeEvent(e);
+}
+
+void
+QCefWindow::resizeEvent(QResizeEvent* e)
+{
+  qDebug() << "----- QCefWindow::resizeEvent:" << e;
+#if defined(Q_OS_WINDOWS)
+  syncCefWindowPosOnResize();
+#elif defined(Q_OS_LINUX)
+  if (cefWindow_) {
+    cefWindow_->resize(e->size());
+  }
+#else
+  // do nothing
+#endif
+  QWindow::resizeEvent(e);
+}
+
+void
+QCefWindow::focusInEvent(QFocusEvent* e)
+{
+  qDebug() << "----- QCefWindow::focusInEvent:" << e;
+  QWindow::focusInEvent(e);
+}
+
+void
+QCefWindow::focusOutEvent(QFocusEvent* e)
+{
+  qDebug() << "----- QCefWindow::focusOutEvent:" << e;
+  QWindow::focusOutEvent(e);
+}
+
+QObject*
+QCefWindow::focusObject() const
+{
+  QObject* focusObject = nullptr;
+  if (cefWindow_) {
+    focusObject = cefWindow_;
+  } else {
+    focusObject = QWindow::focusObject();
+  }
+  qDebug() << "----- QCefWindow::focusObject:" << focusObject;
+  return focusObject;
+}
